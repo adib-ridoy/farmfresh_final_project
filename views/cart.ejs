@@ -1,0 +1,565 @@
+<%- include('partials/header') %> <!-- Include the header partial -->
+
+    <style>
+        /* Simple toast for stock limit messages */
+        .toast-notice {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #2ecc71;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 3000;
+            pointer-events: none;
+            font-size: 14px;
+        }
+        .toast-notice.show {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        /* Stock modal */
+        .stock-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 4000;
+        }
+        .stock-modal-backdrop.show { display: flex; }
+        .stock-modal {
+            background: #fff;
+            border-radius: 10px;
+            padding: 20px 24px;
+            width: min(90%, 360px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+            text-align: center;
+        }
+        .stock-modal h4 { margin: 0 0 10px; font-size: 18px; color: #2c3e50; }
+        .stock-modal p { margin: 0 0 16px; color: #555; font-size: 14px; }
+        .stock-modal button {
+            background: #2ecc71;
+            color: #fff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .stock-modal button:hover { background: #27ae60; }
+    </style>
+
+    <div id="maxStockToast" class="toast-notice" role="status" aria-live="polite">
+        <span class="toast-message">Maximum stock reached</span>
+    </div>
+
+    <div id="stockModal" class="stock-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stockModalTitle">
+        <div class="stock-modal">
+            <h4 id="stockModalTitle">Maximum stock reached</h4>
+            <p id="stockModalMessage">You have reached the maximum available quantity.</p>
+            <button type="button" onclick="closeStockModal()">OK</button>
+        </div>
+    </div>
+
+    <div id="deleteModal" class="stock-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+        <div class="stock-modal">
+            <h4 id="deleteModalTitle">Remove Item</h4>
+            <p id="deleteModalMessage">Are you sure you want to remove this item from your cart?</p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button type="button" onclick="confirmDeleteItem()" style="background: #e74c3c; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600;">Delete</button>
+                <button type="button" onclick="closeDeleteModal()" style="background: #95a5a6; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Page Header -->
+    <section class="page-header">
+        <div class="container">
+            <h1 class="page-title"><i class="fas fa-shopping-cart"></i> Shopping Cart</h1>
+            <p class="page-subtitle">Review your items and proceed to checkout</p>
+            <nav class="breadcrumb">
+                <a href="/" class="breadcrumb-link">Home</a>
+                <span class="breadcrumb-separator">/</span>
+                <span class="breadcrumb-current">Cart</span>
+            </nav>
+        </div>
+    </section>
+
+    <!-- Cart Section -->
+    <section class="cart-page">
+        <div class="container">
+            <div class="cart-layout">
+                <!-- Cart Items -->
+                <div class="cart-items-section">
+                    <h2 class="section-title">Cart Items (<%= cartItems.length %>)</h2>
+                    
+                    <% if (!cartItems || cartItems.length === 0) { %>
+                        <div style="text-align:center; padding:60px 20px;">
+                            <i class="fas fa-shopping-cart" style="font-size:60px; color:#ddd; margin-bottom:20px; display:block;"></i>
+                            <p style="font-size:1.2rem; color:#666;">Your cart is empty</p>
+                            <p style="color:#999; margin-bottom:20px;">Start shopping to add items to your cart</p>
+                            <a href="/products" class="btn btn-primary">Continue Shopping</a>
+                        </div>
+                    <% } else { %>
+                        <% cartItems.forEach(item => { %>
+                            <div class="cart-item" data-cart-id="<%= item.id %>">
+                                <img src="<%= item.image_url || 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27120%27 height=%27120%27%3E%3Crect fill=%27%23e8f5e9%27 width=%27120%27 height=%27120%27/%3E%3Ctext fill=%27%232ecc71%27 font-family=%27Arial%27 font-size=%2740%27 x=%2750%25%27 y=%2750%25%27 dominant-baseline=%27middle%27 text-anchor=%27middle%27%3E📦%3C/text%3E%3C/svg%3E' %>" alt="<%= item.name %>" style="max-width:100%; max-height:100%;">
+                                <div class="cart-item-details">
+                                    <h3><a href="/product/<%= item.product_id %>" style="text-decoration:none; color:inherit;"><%= item.name %></a></h3>
+                                    <p class="item-farmer">by <a href="/farmer/<%= item.farmer_id %>" style="text-decoration:none; color:inherit;"><%= item.farm_name %></a></p>
+                                    <p class="item-price">৳<%= item.price %>/<%= item.unit || 'kg' %></p>
+                                    <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">Stock: <%= item.stock_quantity %> available</p>
+                                </div>
+                                <div class="cart-item-actions">
+                                    <div class="quantity-control">
+                                        <button class="qty-btn" onclick="updateQuantity(<%= item.id %>, -1)"><i class="fas fa-minus"></i></button>
+                                        <input type="number" class="qty-input" value="<%= item.quantity %>" min="1" max="<%= item.stock_quantity %>" 
+                                               id="qty-<%= item.id %>" data-cart-id="<%= item.id %>" data-max-stock="<%= item.stock_quantity %>"
+                                               oninput="validateQuantityInputRealtime(<%= item.id %>)"
+                                               onchange="validateQuantityInput(<%= item.id %>)"
+                                               onkeypress="handleQuantityKeyPress(event, <%= item.id %>)">
+                                        <button class="qty-btn" onclick="updateQuantity(<%= item.id %>, 1)"><i class="fas fa-plus"></i></button>
+                                    </div>
+                                    <div class="item-total">৳<%= item.subtotal %></div>
+                                    <button class="btn-remove" onclick="removeItem(<%= item.id %>)"><i class="fas fa-trash"></i></button>
+                                </div>
+                            </div>
+                        <% }) %>
+                    <% } %>
+                </div>
+
+                <!-- Order Summary & Checkout -->
+                <div class="cart-summary-section">
+                    <div class="order-summary">
+                        <h3>Order Summary</h3>
+                        <div class="summary-row">
+                            <span>Subtotal (<%= cartItems.length %> <%= cartItems.length === 1 ? 'item' : 'items' %>)</span>
+                            <span>৳<%= totalPrice %></span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Delivery Fee</span>
+                            <span>৳50</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Quality Assurance</span>
+                            <span class="free-badge">FREE</span>
+                        </div>
+                        <div class="summary-divider"></div>
+                        <div class="summary-row total">
+                            <span>Total</span>
+                            <span>৳<%= totalPrice + 50 %></span>
+                        </div>
+
+                        <% if (cartItems.length > 0) { %>
+                            <button class="btn btn-primary btn-block btn-checkout" onclick="openCheckoutModal()">
+                                <i class="fas fa-lock"></i> Proceed to Checkout
+                            </button>
+                        <% } %>
+
+                        <div class="secure-checkout">
+                            <i class="fas fa-shield-alt"></i> Secure checkout with SSL encryption
+                        </div>
+                    </div>
+
+                    <!-- Promo Code -->
+                    <div class="promo-code">
+                        <h4>Have a promo code?</h4>
+                        <div class="promo-input-group">
+                            <input type="text" placeholder="Enter code">
+                            <button class="btn btn-outline">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Checkout Modal -->
+    <div id="checkoutModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
+        <div style="background:white; border-radius:12px; padding:40px; max-width:500px; width:90%; max-height:90vh; overflow-y:auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px;">
+                <h2 style="margin:0; font-size:1.5rem;">Checkout</h2>
+                <button onclick="closeCheckoutModal()" style="background:none; border:none; font-size:28px; cursor:pointer; color:#999;">&times;</button>
+            </div>
+
+            <form id="checkoutForm" onsubmit="submitCheckout(event)">
+                <!-- Delivery Address -->
+                <div style="margin-bottom:20px;">
+                    <label for="deliveryAddress" style="display:block; margin-bottom:8px; font-weight:600;">Delivery Address <span style="color:red;">*</span></label>
+                    <textarea id="deliveryAddress" name="deliveryAddress" placeholder="Enter your full delivery address" 
+                              style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; font-family:inherit; font-size:14px; resize:vertical; min-height:80px;" 
+                              required></textarea>
+                </div>
+
+                <!-- Phone Number -->
+                <div style="margin-bottom:20px;">
+                    <label for="phoneNumber" style="display:block; margin-bottom:8px; font-weight:600;">Phone Number <span style="color:red;">*</span></label>
+                    <input type="tel" id="phoneNumber" name="phoneNumber" placeholder="Enter your phone number" 
+                           style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; box-sizing:border-box;" 
+                           pattern="[0-9]{10,}" required>
+                    <small style="color:#666;">10-11 digits</small>
+                </div>
+
+                <!-- Payment Method -->
+                <div style="margin-bottom:25px;">
+                    <label style="display:block; margin-bottom:12px; font-weight:600;">Payment Method <span style="color:red;">*</span></label>
+                    
+                    <div style="margin-bottom:12px;">
+                        <input type="radio" id="cod" name="paymentMethod" value="cod" checked required>
+                        <label for="cod" style="margin-left:8px; cursor:pointer;">
+                            <i class="fas fa-money-bill-wave" style="color:#2ecc71;"></i>
+                            <strong> Cash on Delivery</strong>
+                            <p style="margin:4px 0 0 24px; color:#666; font-size:0.9rem;">Pay when you receive</p>
+                        </label>
+                    </div>
+
+                    <div style="margin-bottom:12px;">
+                        <input type="radio" id="bkash" name="paymentMethod" value="bkash" required>
+                        <label for="bkash" style="margin-left:8px; cursor:pointer;">
+                            <i class="fas fa-mobile-alt" style="color:#E2136E;"></i>
+                            <strong> bKash</strong>
+                            <p style="margin:4px 0 0 24px; color:#666; font-size:0.9rem;">Mobile payment</p>
+                        </label>
+                    </div>
+
+                    <div style="margin-bottom:12px;">
+                        <input type="radio" id="nagad" name="paymentMethod" value="nagad" required>
+                        <label for="nagad" style="margin-left:8px; cursor:pointer;">
+                            <i class="fas fa-mobile-alt" style="color:#EC1C24;"></i>
+                            <strong> Nagad</strong>
+                            <p style="margin:4px 0 0 24px; color:#666; font-size:0.9rem;">Mobile payment</p>
+                        </label>
+                    </div>
+
+                    <div style="margin-bottom:12px;">
+                        <input type="radio" id="card" name="paymentMethod" value="card" required>
+                        <label for="card" style="margin-left:8px; cursor:pointer;">
+                            <i class="fas fa-credit-card" style="color:#0066cc;"></i>
+                            <strong> Credit/Debit Card</strong>
+                            <p style="margin:4px 0 0 24px; color:#666; font-size:0.9rem;">Visa, Mastercard, Amex</p>
+                        </label>
+                    </div>
+
+                    <div>
+                        <input type="radio" id="bank" name="paymentMethod" value="bank" required>
+                        <label for="bank" style="margin-left:8px; cursor:pointer;">
+                            <i class="fas fa-university" style="color:#666;"></i>
+                            <strong> Bank Transfer</strong>
+                            <p style="margin:4px 0 0 24px; color:#666; font-size:0.9rem;">Direct bank transfer</p>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Order Summary in Modal -->
+                <div style="background:#f8f9fa; padding:15px; border-radius:8px; margin-bottom:20px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span>Subtotal</span>
+                        <span>৳<%= totalPrice %></span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span>Delivery Fee</span>
+                        <span>৳50</span>
+                    </div>
+                    <div style="border-top:1px solid #ddd; padding-top:8px; display:flex; justify-content:space-between; font-weight:600; font-size:1.1rem; color:#2ecc71;">
+                        <span>Total</span>
+                        <span>৳<%= totalPrice + 50 %></span>
+                    </div>
+                </div>
+
+                <!-- Buttons -->
+                <div style="display:flex; gap:10px;">
+                    <button type="submit" class="btn btn-primary" style="flex:1;">
+                        <i class="fas fa-check"></i> Place Order
+                    </button>
+                    <button type="button" class="btn btn-outline" onclick="closeCheckoutModal()" style="flex:1;">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+<script>
+    let maxStockToastTimer = null;
+
+    function showStockModal(message) {
+        const modal = document.getElementById('stockModal');
+        const msg = document.getElementById('stockModalMessage');
+        if (msg) msg.textContent = message;
+        if (modal) modal.classList.add('show');
+    }
+
+    function closeStockModal() {
+        const modal = document.getElementById('stockModal');
+        if (modal) modal.classList.remove('show');
+    }
+
+    function showDeleteModal(cartId) {
+        const modal = document.getElementById('deleteModal');
+        if (modal) {
+            modal.classList.add('show');
+            // Store the cartId for later use
+            modal.dataset.cartId = cartId;
+        }
+    }
+
+    function closeDeleteModal() {
+        const modal = document.getElementById('deleteModal');
+        if (modal) modal.classList.remove('show');
+    }
+
+    async function confirmDeleteItem() {
+        const modal = document.getElementById('deleteModal');
+        const cartId = modal.dataset.cartId;
+        closeDeleteModal();
+        
+        try {
+            const response = await fetch('/cart/remove/' + cartId, {
+                method: 'DELETE'
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Remove the cart item element
+                const cartItem = document.querySelector(`[data-cart-id="${cartId}"]`);
+                if (cartItem) {
+                    cartItem.remove();
+                }
+                location.reload(); // Reload to update totals
+            } else {
+                alert(data.message || 'Failed to remove item');
+            }
+        } catch (err) {
+            console.error('Error removing item:', err);
+            alert('Error removing item from cart');
+        }
+    }
+
+    function showMaxStockToast(message) {
+        const toast = document.getElementById('maxStockToast');
+        if (!toast) return;
+        const msgEl = toast.querySelector('.toast-message');
+        if (msgEl) msgEl.textContent = message;
+        toast.classList.add('show');
+        if (maxStockToastTimer) clearTimeout(maxStockToastTimer);
+        maxStockToastTimer = setTimeout(() => {
+            toast.classList.remove('show');
+        }, 2200);
+    }
+
+    function openCheckoutModal() {
+        document.getElementById('checkoutModal').style.display = 'flex';
+    }
+
+    function closeCheckoutModal() {
+        document.getElementById('checkoutModal').style.display = 'none';
+    }
+
+    async function submitCheckout(event) {
+        event.preventDefault();
+        
+        const deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+        const phoneNumber = document.getElementById('phoneNumber').value.trim();
+        const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
+        
+        if (!deliveryAddress || !phoneNumber || !paymentMethod) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    deliveryAddress,
+                    phoneNumber,
+                    paymentMethod
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('Order placed successfully!');
+                window.location.href = '/my-orders';
+            } else {
+                alert(data.message || 'Failed to place order');
+            }
+        } catch (err) {
+            console.error('Checkout error:', err);
+            alert('Error placing order');
+        }
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('checkoutModal').addEventListener('click', function(event) {
+        if (event.target === this) {
+            closeCheckoutModal();
+        }
+    });
+    const navToggle = document.querySelector('.nav-toggle');
+    const navMenu = document.querySelector('.nav-menu');
+    const navActions = document.querySelector('.nav-actions');
+    
+    if (navToggle && navMenu && navActions) {
+        navToggle.addEventListener('click', function() {
+            navMenu.classList.toggle('active');
+            navActions.classList.toggle('active');
+        });
+    }
+
+    // Update quantity
+    async function updateQuantity(cartId, change) {
+        const qtyInput = document.getElementById('qty-' + cartId);
+        let currentQty = parseInt(qtyInput.value);
+        const maxStock = parseInt(qtyInput.dataset.maxStock) || 999;
+        
+        // Check if trying to increment beyond max stock
+        if (change > 0 && currentQty >= maxStock) {
+            showStockModal(`Maximum quantity is ${maxStock}`);
+            return;
+        }
+        
+        // Check if trying to decrement below 1
+        if (change < 0 && currentQty <= 1) {
+            return;
+        }
+        
+        const newQty = Math.max(1, Math.min(maxStock, currentQty + change));
+        
+        try {
+            const response = await fetch('/cart/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    cartId: cartId,
+                    quantity: newQty
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                qtyInput.value = newQty;
+                location.reload(); // Reload to update totals
+            } else {
+                alert(data.message || 'Failed to update quantity');
+                qtyInput.value = currentQty;
+            }
+        } catch (err) {
+            console.error('Error updating quantity:', err);
+            alert('Error updating quantity');
+            qtyInput.value = currentQty;
+        }
+    }
+
+    // Validate manual quantity input
+    function validateQuantityInput(cartId) {
+        const qtyInput = document.getElementById('qty-' + cartId);
+        const maxStock = parseInt(qtyInput.dataset.maxStock) || 999;
+        let value = parseInt(qtyInput.value) || 1;
+        
+        if (value < 1) {
+            qtyInput.value = 1;
+            showStockModal('Quantity must be at least 1');
+            return;
+        }
+        
+        if (value > maxStock) {
+            qtyInput.value = maxStock;
+            showStockModal(`Maximum quantity is ${maxStock}`);
+            return;
+        }
+        
+        qtyInput.value = value;
+    }
+
+    // Remove item
+    function removeItem(cartId) {
+        showDeleteModal(cartId);
+    }
+
+    // Handle Enter key in quantity input
+    function handleQuantityKeyPress(event, cartId) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            const qtyInput = document.getElementById('qty-' + cartId);
+            const maxStock = parseInt(qtyInput.dataset.maxStock) || 999;
+            const originalValue = parseInt(qtyInput.value) || 1;
+            let value = originalValue;
+            let adjusted = false;
+            
+            // Validate the value and notify when clamped
+            if (value < 1) {
+                value = 1;
+                showStockModal('Quantity must be at least 1');
+                adjusted = true;
+            } else if (value > maxStock) {
+                value = maxStock;
+                showStockModal(`Maximum quantity is ${maxStock}`);
+                adjusted = true;
+            }
+
+            qtyInput.value = value;
+            if (adjusted) {
+                return; // Keep modal until user dismisses, avoid auto reload
+            }
+            updateQuantityByValue(cartId, value);
+        }
+    }
+
+    // Update quantity by direct value (used when Enter is pressed)
+    async function updateQuantityByValue(cartId, newQty) {
+        const qtyInput = document.getElementById('qty-' + cartId);
+        const maxStock = parseInt(qtyInput?.dataset.maxStock) || 999;
+        if (newQty < 1) {
+            newQty = 1;
+            if (qtyInput) qtyInput.value = 1;
+            showStockModal('Quantity must be at least 1');
+            return;
+        }
+        if (newQty > maxStock) {
+            newQty = maxStock;
+            if (qtyInput) qtyInput.value = maxStock;
+            showStockModal(`Maximum quantity is ${maxStock}`);
+            return;
+        }
+        try {
+            const response = await fetch('/cart/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    cartId: cartId,
+                    quantity: newQty
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                location.reload();
+            } else {
+                alert(data.message || 'Failed to update quantity');
+            }
+        } catch (err) {
+            console.error('Error updating quantity:', err);
+            alert('Error updating quantity');
+        }
+    }
+</script>
+
+<%- include('partials/footer') %> <!-- Include the footer partial -->
